@@ -1,0 +1,209 @@
+require 'buildtools'
+require 'buildtools/tasks'
+
+{removeSync:remove} = require 'remove'
+
+
+MODULE_LINK = 'node_modules/reportcard'
+
+
+
+
+task \link 'Link package source to node_modules so the name resolves correctly' ->
+    # Browser-based require doens't support relative requires, but things
+    # like `require 'reportcard/utils'` rarely work in node without this hack.
+    mkdirp 'node_modules'
+    if exists MODULE_LINK
+        remove MODULE_LINK
+    else
+        say "Creating #{basename MODULE_LINK} symlink..."
+    fs.symlinkSync "../src", MODULE_LINK
+
+task \install 'Install project dependencies.' ->
+    <- sh 'npm install', {-verbose, +errors, +die}
+
+task \setup 'Ensure project is set up for development.' ->
+    invoke \install
+    invoke \link
+    invoke \update_version
+
+
+task \server 'Start dev server' ->
+    invoke \setup
+    say ''
+    run 'src/server/server.co'
+
+
+task \build 'Build coco sources' ->
+    invoke \setup
+    coco <[ -bjc package.co ]>
+    
+    {sources} = require 'reportcard/server/view-helpers'
+    browserify = require 'browserify'
+    Coco       = require 'coco'
+    Jade       = require 'jade'
+    Stylus     = require 'stylus'
+    nib        = require 'nib'
+    yaml       = require 'js-yaml'
+    
+    matchExt = /((?:\.min)?)\.mod((?:\.min)?)\.js$/i
+    targetDir = 'lib'
+    
+    console.log 'Building source...'
+    Seq()
+        .seq ->
+            console.log '  Bundling Browserify bundle'
+            bundle = browserify exports:<[ require process ]>
+                .require <[ seq d3 events ]>
+                .bundle()
+            write 'static/vendor/browserify.js', bundle
+            @ok()
+        
+        .set glob 'src/template/**/*.jade', {+sync}
+        .seqEach (infile) ->
+            outfile     = "#infile.js".replace /^src/, 'lib'
+            console.log "  Compiling Jade template to JS:\t #infile \t-->\t #outfile"
+            template_fn = Jade.compile read(infile), { +pretty, +client, -compileDebug, filename:infile }
+            template    = String template_fn .replace /^function anonymous\(/, 'function \('
+            mkdirp dirname outfile
+            write outfile, """
+                var template = #template;
+                if (typeof module != 'undefined') {
+                    module.exports = exports = template;
+                }
+            """
+            @ok()
+        
+        .set glob 'src/**/*.co', {+sync}
+        .seqEach (infile) ->
+            return @ok() unless exists infile
+            outfile = infile.replace /^src/, 'lib' .replace /\.co$/, '.js'
+            console.log "  Compiling Coco to JS:\t #infile \t-->\t #outfile"
+            mkdirp dirname outfile
+            write outfile, Coco.compile read(infile), {+bare, filename:infile}
+            @ok()
+        
+        .set sources("www/modules.yaml", 'development').map -> it.slice 1
+        .seqEach (srcfile) ->
+            return @ok() unless matchExt.test srcfile
+            outfile = (if _.startsWith srcfile, 'vendor' then 'static' else 'www') + '/' + srcfile
+            infile = outfile.replace matchExt, '$1$2.js'
+            return @ok() unless exists infile
+            return @ok() if _.startsWith(srcfile, 'vendor') and exists outfile
+            parts = infile.replace matchExt, '' .split '/' .slice 2
+            parts.pop() if 'index' is _.last parts
+            ID = parts.join '/' 
+            console.log "  Wrapping JS in Module:\t #infile \t-->\t #outfile"
+            mkdirp dirname outfile
+            write outfile, "require.define('/node_modules/#ID.js', function(require, module, exports, __dirname, __filename, undefined){\n\n" + read(infile) + "\n\n});\n"
+            @ok()
+        
+        .set glob 'www/css/*.styl', {+sync}
+        .seqEach (infile) ->
+            outfile = infile.replace /\.styl$/, '.css'
+            console.log "  Compiling Stylus to CSS:\t #infile \t-->\t #outfile"
+            mkdirp dirname outfile
+            stylus = Stylus read infile
+            stylus.set 'filename', infile
+            stylus.use nib()
+            stylus.render (err, css) ~>
+                write outfile, css unless err
+                this err
+        
+        .set glob 'www/schema/**/*.yaml', {+sync}
+        .seqEach (infile) ->
+            # outfile = infile.replace /^www\//, "#targetDir/" .replace /\.yaml$/, '.json'
+            outfile = infile.replace /\.yaml$/, '.json'
+            console.log "  Compiling YAML to JSON:\t #infile \t-->\t #outfile"
+            mkdirp dirname outfile
+            write outfile, JSON.stringify yaml.load read infile
+            @ok()
+        
+        .catch (err) ->
+            console.error "Error! #err", err
+            err = new Error err if typeof err is 'string'
+            throw err
+        .seq ->
+            console.log 'Done!'
+        
+
+task \bundle 'Build application and vendor bundles' ->
+    invoke \bundle_app
+    invoke \bundle_vendor
+
+task \bundle_app 'Build application bundle' ->
+    {sources} = require 'reportcard/server/view-helpers'
+    
+    app_bundle_path = 'var/js/reportcard/app-bundle.js'
+    app_sources = sources("www/modules.yaml", 'development')
+        .filter -> not _.startsWith it, '/vendor'
+        .map -> "var#it"
+    bundle_js app_bundle_path, app_sources, {-minify}
+    
+    print 'Minifying app bundle...'
+    app_bundle_min = minify read app_bundle_path
+    write 'var/js/reportcard/app-bundle.min.js', app_bundle_min
+    say 'done!'
+
+task \bundle_vendor 'Build vendor bundle' ->
+    {sources} = require 'reportcard/server/view-helpers'
+    
+    vendor_bundle_path = 'var/vendor/vendor-bundle.min.js'
+    vendor_sources = sources("www/modules.yaml", 'development')
+        .filter -> _.startsWith it, '/vendor'
+        .map -> "static#it"
+    bundle_js vendor_bundle_path, vendor_sources, {-minify}
+
+
+
+task \test 'Rebuild test files and run tests' ->
+    invoke \setup
+    invoke \cleanup_tests
+    
+    # Compile tests to JS so Expresso finds them
+    say "Compiling tests...".white.bold
+    glob 'test/**/*.co', {+sync} .forEach -> coco [ '-bc', it ]
+    say 'ok.\n'
+    
+    say "Running tests...".white.bold
+    err <- sh 'expresso', {-die}
+    say "#{err and 'yep' or 'ok'}.\n"
+    
+    # Clean up JS turds
+    invoke \cleanup_tests
+
+
+task \cleanup_tests 'Removes compiled tests' ->
+    # XXX: erp. only works if no .js files by default :P
+    # say "Cleaning up old test files...".white.bold
+    # js_files = glob 'test/**/*.js', {+sync}
+    # for js of js_files.filter( -> exists it )
+    #     say "unlink #js"
+    #     fs.unlinkSync js
+    # say 'ok.\n'
+    
+    glob 'test/**/*.co', {+sync}
+        .map -> it.replace('.co', '.js')
+        .filter exists
+        .forEach fs.unlinkSync
+
+task \clean 'Clean up environment and artifacts' ->
+    invoke \cleanup_tests
+    remove [MODULE_LINK, 'var', 'tmp/dist'], {+ignoreMissing, +verbose}
+
+
+
+task \source_list 'Print a list of the source file paths.' ->
+    invoke \setup
+    {sources} = require 'reportcard/server/view-helpers'
+    say do
+        sources("www/modules.yaml", 'development')
+            .map -> it.slice 1
+            .join '\n'
+
+
+# task \dist 'Assemble a distribution package for deploy' ->
+#     invoke \cleanup_tests
+#     ...
+
+

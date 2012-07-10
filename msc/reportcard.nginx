@@ -1,0 +1,49 @@
+
+server {
+    # server_name count.less.ly;
+    server_name reportcard.wmflabs.org;
+    
+    ## include snippets/domain_set;
+    if ($_host = '') {
+        set $_host $host;
+    }
+    if ($_host ~* ^((?:([a-z0-9_.\-]+)\.)?(.+\..+))$) {
+        set $fqdn $1;
+        set $subdomain $2;
+        set $domain $3;
+    }
+    ##
+    
+    # root /home/wmf/projects/reportcard/dist;
+    root /srv/reportcard/dist;
+    
+    # we put this here so forwarding servers see it before any redirect
+    ## include snippets/locations_basic;
+    location @404 {
+        return 404;
+    }
+    location ~ /\.ht {
+        deny all;
+    }
+    ##
+    
+    # Serve static files out of dist before proxying for perf++
+    try_files $uri @reportcard;
+    location @reportcard {
+        # proxy_pass http://count.less.ly:8081;
+        proxy_pass http://reportcard.wmflabs.org:8081;
+    }
+    
+    error_page 404 = @404;
+    ## include snippets/nolog_files;
+    location = /robots.txt {
+        log_not_found  off;
+    }
+    location = /favicon.ico {
+        log_not_found  off;
+    }
+    ##
+    
+    access_log /var/log/nginx/reportcard.wmflabs.org.access.log;
+    error_log  /var/log/nginx/reportcard.wmflabs.org.error.log;
+}

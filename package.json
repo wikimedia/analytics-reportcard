@@ -11,7 +11,13 @@
     "site",
     "server"
   ],
-  "author": "David Schoonover <dsc@less.ly> (http://less.ly)",
+  "author": "David Schoonover <dsc@wikimedia.org> (http://less.ly)",
+  "contributors": [
+    "Andrew Otto <otto@wikimedia.org>",
+    "Fabian Kaelin <fabian.kaelin@gmail.com>",
+    "Evan Rosen <erosen@wikimedia.org>",
+    "Diederik van Liere <dvanliere@wikimedia.org>"
+  ],
   "dependencies": {
     "express": "== 2.5.9",
     "express-resource": "== 0.2.4",
@@ -29,6 +35,10 @@
     "connect-compiler": "https://github.com/dsc/connect-compiler/tarball/master",
     "connect-compiler-extras": "https://github.com/dsc/connect-compiler-extras/tarball/master",
     "uglify-js": "== 1.2.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/wikimedia/reportcard.git"
   },
   "engine": {
     "node": ">=0.8.x"

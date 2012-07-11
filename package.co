@@ -3,7 +3,13 @@ version                         : '0.1.0'
 description                     : 'The WMF Reportcard'
 homepage                        : 'https://github.com/wikimedia/reportcard'
 keywords                        : <[ wmf wikipedia visualization graph site server ]>
-author                          : 'David Schoonover <dsc@less.ly> (http://less.ly)'
+author                          : 'David Schoonover <dsc@wikimedia.org> (http://less.ly)'
+contributors                    : [
+                                    'Andrew Otto <otto@wikimedia.org>'
+                                    'Fabian Kaelin <fabian.kaelin@gmail.com>'
+                                    'Evan Rosen <erosen@wikimedia.org>'
+                                    'Diederik van Liere <dvanliere@wikimedia.org>'
+]
 
 # main                            : './lib'
 # directories                   : lib: './lib', bin:'./bin', doc:'./doc', man:'./man'
@@ -28,7 +34,7 @@ devDependencies                 :
 #     'expresso'                  : '== 0.9.2'
 # 
 # scripts                         : test:'expresso'
-# repository                      : type:'git', url:'git://github.com/wikimedia/reportcard.git'
+repository                      : type:'git', url:'git://github.com/wikimedia/reportcard.git'
 
 engine                          : node:'>=0.8.x'
 license                         : 'MIT'
